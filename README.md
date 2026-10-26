@@ -25,6 +25,8 @@ normal Claude login is untouched when you run plain `claude`.
 The chosen model is used for every request, including Claude Code's small
 background-model calls. `NVIDIA_API_KEY`, `NIMCLAUDE_MODEL`, `NIMCLAUDE_KEY`
 (require a token from the client) and `NIMCLAUDE_BASE` override the config.
+`NIMCLAUDE_MAX_TOKENS` (default 16384) caps the output length Claude Code asks
+for, and `NIMCLAUDE_TIMEOUT` (default 120 s) is how long to wait for NVIDIA's first byte.
 
 ## Logs
 

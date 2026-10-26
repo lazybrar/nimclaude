@@ -33,6 +33,8 @@ struct Config {
     chat_url: String,
     model_override: Option<String>,
     proxy_key: Option<String>,
+    first_byte_timeout: Duration,
+    max_tokens_cap: u64,
     http: reqwest::Client,
 }
 
@@ -67,6 +69,10 @@ fn setting(settings: &BTreeMap<String, String>, env_name: &str, key: &str) -> Op
         .ok()
         .or_else(|| settings.get(key).cloned())
         .filter(|v| !v.is_empty())
+}
+
+fn env_number(name: &str) -> Option<u64> {
+    env::var(name).ok().and_then(|v| v.parse().ok())
 }
 
 fn fail(message: &str) -> ! {
@@ -162,6 +168,8 @@ fn load_config() -> Arc<Config> {
             setting(&settings, "NIMCLAUDE_MODEL", "model")
                 .unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
         ),
+        first_byte_timeout: Duration::from_secs(env_number("NIMCLAUDE_TIMEOUT").unwrap_or(120)),
+        max_tokens_cap: env_number("NIMCLAUDE_MAX_TOKENS").unwrap_or(16384),
         proxy_key: env::var("NIMCLAUDE_KEY").ok().filter(|k| !k.is_empty()),
         http: reqwest::Client::builder()
             .http1_only()
@@ -342,7 +350,10 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
             .to_owned()
     });
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
-    let chat = request::to_chat_request(&body, &upstream_model);
+    let mut chat = request::to_chat_request(&body, &upstream_model);
+    if let Some(max) = chat.get("max_tokens").and_then(Value::as_u64) {
+        chat["max_tokens"] = max.min(config.max_tokens_cap).into();
+    }
     let count = |key: &str| body.get(key).and_then(Value::as_array).map_or(0, Vec::len);
     log::log(&format!(
         "#{id} request client_model={requested} -> {upstream_model} stream={stream} messages={} tools={} max_tokens={}",
@@ -358,21 +369,41 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
     }
 
     let start = Instant::now();
-    let upstream = match config
+    let send = config
         .http
         .post(&config.chat_url)
         .bearer_auth(&config.api_key)
         .json(&chat)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(err) => {
-            return fail_response(
-                id,
-                StatusCode::BAD_GATEWAY,
-                &format!("upstream: {}", chain(&err)),
-            );
+        .send();
+    tokio::pin!(send);
+    let mut ticker = tokio::time::interval(Duration::from_secs(10));
+    ticker.tick().await;
+    let upstream = loop {
+        tokio::select! {
+            result = &mut send => match result {
+                Ok(r) => break r,
+                Err(err) => {
+                    return fail_response(
+                        id,
+                        StatusCode::BAD_GATEWAY,
+                        &format!("upstream: {}", chain(&err)),
+                    );
+                }
+            },
+            _ = ticker.tick() => {
+                let waited = start.elapsed();
+                log::log(&format!("#{id} still waiting for nvidia: {} s", waited.as_secs()));
+                if waited >= config.first_byte_timeout {
+                    return fail_response(
+                        id,
+                        StatusCode::GATEWAY_TIMEOUT,
+                        &format!(
+                            "nvidia sent no response within {} s (model {upstream_model} may be overloaded or queued; try `nimclaude set model <other>`)",
+                            waited.as_secs()
+                        ),
+                    );
+                }
+            }
         }
     };
 
