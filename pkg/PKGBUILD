@@ -34,7 +34,6 @@ check() {
 package() {
   install -Dm755 "$srcdir/target/release/nimclaude" "$pkgdir/usr/bin/nimclaude"
   install -Dm644 "$startdir/nimclaude.service" "$pkgdir/usr/lib/systemd/user/nimclaude.service"
-  install -Dm644 "$startdir/env.example" "$pkgdir/usr/share/doc/$pkgname/env.example"
   install -Dm644 "$startdir/../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 "$startdir/../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

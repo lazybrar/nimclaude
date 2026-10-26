@@ -4,8 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-EnvironmentFile=%h/.config/nimclaude/env
-ExecStart=/usr/bin/nimclaude
+ExecStart=/usr/bin/nimclaude serve
 Restart=on-failure
 NoNewPrivileges=yes
 PrivateTmp=yes

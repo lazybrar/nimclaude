@@ -14,7 +14,7 @@ bytes = "1"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "json", "rustls-tls", "stream"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "signal"] }
 
 [profile.release]
 opt-level = 3

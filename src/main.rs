@@ -3,7 +3,13 @@
 mod request;
 mod response;
 
-use std::{env, io, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    env, fs, io,
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use axum::{
     Router,
@@ -17,6 +23,8 @@ use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 use serde_json::{Value, json};
 
+const DEFAULT_MODEL: &str = "qwen/qwen3-coder-480b-a35b-instruct";
+
 struct Config {
     api_key: String,
     chat_url: String,
@@ -25,48 +33,155 @@ struct Config {
     http: reqwest::Client,
 }
 
-#[tokio::main]
-async fn main() {
-    if matches!(env::args().nth(1).as_deref(), Some("-V" | "--version")) {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        return;
+fn config_path() -> PathBuf {
+    let base = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("nimclaude").join("config")
+}
+
+fn read_settings() -> BTreeMap<String, String> {
+    let text = fs::read_to_string(config_path()).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+        .collect()
+}
+
+fn write_settings(settings: &BTreeMap<String, String>) -> io::Result<()> {
+    let path = config_path();
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
     }
-    if env::args().nth(1).is_some() {
-        eprintln!("usage: nimclaude   (configured through environment, see README)");
+    let text: String = settings.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+    fs::write(&path, text)?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+}
+
+fn setting(settings: &BTreeMap<String, String>, env_name: &str, key: &str) -> Option<String> {
+    env::var(env_name)
+        .ok()
+        .or_else(|| settings.get(key).cloned())
+        .filter(|v| !v.is_empty())
+}
+
+fn fail(message: &str) -> ! {
+    eprintln!("nimclaude: {message}");
+    std::process::exit(1)
+}
+
+const USAGE: &str = "usage:
+  nimclaude set api <NVIDIA_API_KEY>   save your key (once)
+  nimclaude set model <model-id>       choose the model (default: qwen/qwen3-coder-480b-a35b-instruct)
+  nimclaude show                       print the saved settings
+  nimclaude [claude args...]           start the proxy and launch claude through it
+  nimclaude serve                      only run the proxy (HOST/PORT, default 127.0.0.1:4001)";
+
+fn set_command(args: &[String]) {
+    let [what, value] = args else {
+        eprintln!("{USAGE}");
         std::process::exit(2);
+    };
+    let key = match what.as_str() {
+        "api" => "api",
+        "model" => "model",
+        _ => {
+            eprintln!("{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    let mut settings = read_settings();
+    settings.insert(key.to_owned(), value.clone());
+    if let Err(err) = write_settings(&settings) {
+        fail(&format!("cannot write {}: {err}", config_path().display()));
     }
-    let Some(api_key) = env::var("NVIDIA_API_KEY").ok().filter(|k| !k.is_empty()) else {
-        eprintln!("nimclaude: NVIDIA_API_KEY is not set");
-        std::process::exit(1);
+    println!("saved {key} to {}", config_path().display());
+}
+
+fn show_command() {
+    let settings = read_settings();
+    let api = settings.get("api").map_or("(not set)".to_owned(), |k| {
+        format!("{}...", k.chars().take(8).collect::<String>())
+    });
+    let model = settings.get("model").map_or(DEFAULT_MODEL, String::as_str);
+    println!("config: {}\napi:    {api}\nmodel:  {model}", config_path().display());
+}
+
+fn load_config() -> Arc<Config> {
+    let settings = read_settings();
+    let Some(api_key) = setting(&settings, "NVIDIA_API_KEY", "api") else {
+        fail("no API key yet. run: nimclaude set api <NVIDIA_API_KEY>");
     };
     let base = env::var("NIMCLAUDE_BASE").unwrap_or_else(|_| "https://integrate.api.nvidia.com".to_owned());
-    let config = Arc::new(Config {
+    Arc::new(Config {
         api_key,
         chat_url: format!("{}/v1/chat/completions", base.trim_end_matches('/')),
-        model_override: env::var("NIMCLAUDE_MODEL").ok().filter(|m| !m.is_empty()),
+        model_override: Some(
+            setting(&settings, "NIMCLAUDE_MODEL", "model").unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
+        ),
         proxy_key: env::var("NIMCLAUDE_KEY").ok().filter(|k| !k.is_empty()),
         http: reqwest::Client::new(),
-    });
+    })
+}
 
-    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_owned());
-    let port = env::var("PORT").unwrap_or_else(|_| "4001".to_owned());
-    let app = Router::new()
+fn router(config: Arc<Config>) -> Router {
+    Router::new()
         .route("/v1/messages", post(messages))
         .route("/v1/messages/count_tokens", post(count_tokens))
         .route("/health", get(|| async { "ok" }))
-        .with_state(config);
+        .with_state(config)
+}
+
+async fn serve_command() {
+    let config = load_config();
+    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_owned());
+    let port = env::var("PORT").unwrap_or_else(|_| "4001".to_owned());
     let listener = match tokio::net::TcpListener::bind(format!("{host}:{port}")).await {
         Ok(l) => l,
-        Err(err) => {
-            eprintln!("nimclaude: cannot bind {host}:{port}: {err}");
-            std::process::exit(1);
-        }
+        Err(err) => fail(&format!("cannot bind {host}:{port}: {err}")),
     };
     eprintln!("nimclaude: listening on http://{host}:{port}");
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    let _ = axum::serve(listener, app).with_graceful_shutdown(shutdown).await;
+    let _ = axum::serve(listener, router(config)).with_graceful_shutdown(shutdown).await;
+}
+
+async fn run_command(claude_args: &[String]) {
+    let config = load_config();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(l) => l,
+        Err(err) => fail(&format!("cannot bind a local port: {err}")),
+    };
+    let addr = listener.local_addr().expect("bound listener has an address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router(config)).await;
+    });
+    let status = tokio::process::Command::new("claude")
+        .args(claude_args)
+        .env("ANTHROPIC_BASE_URL", format!("http://{addr}"))
+        .env("ANTHROPIC_AUTH_TOKEN", "nimclaude")
+        .env_remove("ANTHROPIC_API_KEY")
+        .status()
+        .await;
+    match status {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(err) => fail(&format!("cannot start claude: {err}")),
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("-V" | "--version") => println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+        Some("-h" | "--help" | "help") => println!("{USAGE}"),
+        Some("set") => set_command(&args[1..]),
+        Some("show") => show_command(),
+        Some("serve") => serve_command().await,
+        _ => run_command(&args).await,
+    }
 }
 
 fn error(status: StatusCode, message: &str) -> Response {

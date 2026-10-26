@@ -5,38 +5,29 @@ e.g. the free models on build.nvidia.com). It accepts Anthropic `/v1/messages`
 requests (text, tools, streaming) and translates them to and from
 `https://integrate.api.nvidia.com/v1/chat/completions`.
 
-## Setup
+## Use
 
-1. Install the package: `cd pkg && makepkg -f`, then `sudo pacman -U nimclaude-*.pkg.tar.zst`.
-2. Create the env file:
+    nimclaude set api nvapi-...      # once
+    nimclaude                        # starts the proxy and launches claude through it
 
-       mkdir -p ~/.config/nimclaude
-       cp /usr/share/doc/nimclaude/env.example ~/.config/nimclaude/env
-       chmod 600 ~/.config/nimclaude/env
+Arguments after `nimclaude` go straight to `claude` (`nimclaude --resume`).
+The proxy runs on a random local port for the life of that session, and your
+normal Claude login is untouched when you run plain `claude`.
 
-   Set `NVIDIA_API_KEY` and `NIMCLAUDE_MODEL` (any model id from build.nvidia.com).
-3. Start it: `systemctl --user enable --now nimclaude`
-   (logs: `journalctl --user -u nimclaude -f`). Without systemd, export the
-   variables and run `nimclaude`.
-4. Run Claude Code against it (fish):
+| command | meaning |
+|---|---|
+| `nimclaude set api <key>` | save the NVIDIA API key (`~/.config/nimclaude/config`, mode 600) |
+| `nimclaude set model <id>` | choose the model, default `qwen/qwen3-coder-480b-a35b-instruct` |
+| `nimclaude show` | print the saved settings (key shortened) |
+| `nimclaude serve` | only run the proxy on `127.0.0.1:4001` (`HOST`/`PORT`), e.g. `systemctl --user enable --now nimclaude` |
 
-       set -x ANTHROPIC_BASE_URL http://127.0.0.1:4001
-       set -x ANTHROPIC_AUTH_TOKEN local
-       claude
+The chosen model is used for every request, including Claude Code's small
+background-model calls. `NVIDIA_API_KEY`, `NIMCLAUDE_MODEL`, `NIMCLAUDE_KEY`
+(require a token from the client) and `NIMCLAUDE_BASE` override the config.
 
-   `NIMCLAUDE_MODEL` forces every request, including Claude Code's small
-   background-model calls, onto that one model. Leave it unset to pass
-   `ANTHROPIC_MODEL` through (a leading `nvidia/` is stripped).
+## Install
 
-## Environment
-
-| variable | default | meaning |
-|---|---|---|
-| `NVIDIA_API_KEY` | required | NVIDIA API key |
-| `NIMCLAUDE_MODEL` | none | force this upstream model for all requests |
-| `NIMCLAUDE_KEY` | none | require this token from the client |
-| `NIMCLAUDE_BASE` | `https://integrate.api.nvidia.com` | upstream base URL |
-| `HOST` / `PORT` | `127.0.0.1` / `4001` | listen address |
+    cd pkg && makepkg -f && sudo pacman -U nimclaude-*.pkg.tar.zst
 
 ## Limits
 
