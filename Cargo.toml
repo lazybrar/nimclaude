@@ -1,0 +1,17 @@
+[package]
+name = "nimclaude"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Use NVIDIA NIM chat-completions models in Claude Code via a local Anthropic-compatible proxy"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/lazybrar/nimclaude"
+readme = "README.md"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
