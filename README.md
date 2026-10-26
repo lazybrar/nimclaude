@@ -7,7 +7,7 @@ requests (text, tools, streaming) and translates them to and from
 
 ## Use
 
-    nimclaude set api nvapi-...      # once
+    nimclaude set api nvapi-...      # once (or skip: the first run asks for it)
     nimclaude                        # starts the proxy and launches claude through it
 
 Arguments after `nimclaude` go straight to `claude` (`nimclaude --resume`).

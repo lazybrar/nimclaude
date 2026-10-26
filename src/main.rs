@@ -4,7 +4,12 @@ mod request;
 mod response;
 
 use std::{
-    collections::BTreeMap, env, fs, io, os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc,
+    collections::BTreeMap,
+    env, fs,
+    io::{self, IsTerminal},
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    sync::Arc,
 };
 
 use axum::{
@@ -107,10 +112,29 @@ fn show_command() {
     );
 }
 
-fn load_config() -> Arc<Config> {
-    let settings = read_settings();
-    let Some(api_key) = setting(&settings, "NVIDIA_API_KEY", "api") else {
+fn prompt_api_key(settings: &mut BTreeMap<String, String>) -> String {
+    if !io::stdin().is_terminal() {
         fail("no API key yet. run: nimclaude set api <NVIDIA_API_KEY>");
+    }
+    eprint!("first run. paste your NVIDIA API key (nvapi-...): ");
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() || line.trim().is_empty() {
+        fail("no key entered");
+    }
+    let key = line.trim().to_owned();
+    settings.insert("api".to_owned(), key.clone());
+    if let Err(err) = write_settings(settings) {
+        fail(&format!("cannot write {}: {err}", config_path().display()));
+    }
+    eprintln!("saved to {}", config_path().display());
+    key
+}
+
+fn load_config() -> Arc<Config> {
+    let mut settings = read_settings();
+    let api_key = match setting(&settings, "NVIDIA_API_KEY", "api") {
+        Some(key) => key,
+        None => prompt_api_key(&mut settings),
     };
     let base = env::var("NIMCLAUDE_BASE")
         .unwrap_or_else(|_| "https://integrate.api.nvidia.com".to_owned());
@@ -172,6 +196,9 @@ async fn run_command(claude_args: &[String]) {
         .await;
     match status {
         Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => fail(
+            "claude is not installed or not in PATH. install Claude Code first (https://claude.com/claude-code)",
+        ),
         Err(err) => fail(&format!("cannot start claude: {err}")),
     }
 }
