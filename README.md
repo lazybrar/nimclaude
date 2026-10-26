@@ -17,7 +17,7 @@ normal Claude login is untouched when you run plain `claude`.
 | command | meaning |
 |---|---|
 | `nimclaude set api <key>` | save the NVIDIA API key (`~/.config/nimclaude/config`, mode 600) |
-| `nimclaude set model <id>` | choose the model, default `qwen/qwen3-coder-480b-a35b-instruct` |
+| `nimclaude set model <id>` | choose the model, default `moonshotai/kimi-k2.6` |
 | `nimclaude show` | print the saved settings (key shortened) |
 | `nimclaude serve` | only run the proxy on `127.0.0.1:4001` (`HOST`/`PORT`), e.g. `systemctl --user enable --now nimclaude` |
 

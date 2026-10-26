@@ -24,7 +24,7 @@ use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 use serde_json::{Value, json};
 
-const DEFAULT_MODEL: &str = "qwen/qwen3-coder-480b-a35b-instruct";
+const DEFAULT_MODEL: &str = "moonshotai/kimi-k2.6";
 
 struct Config {
     api_key: String,
@@ -74,7 +74,7 @@ fn fail(message: &str) -> ! {
 
 const USAGE: &str = "usage:
   nimclaude set api <NVIDIA_API_KEY>   save your key (once)
-  nimclaude set model <model-id>       choose the model (default: qwen/qwen3-coder-480b-a35b-instruct)
+  nimclaude set model <model-id>       choose the model (default: moonshotai/kimi-k2.6)
   nimclaude show                       print the saved settings
   nimclaude [claude args...]           start the proxy and launch claude through it
   nimclaude serve                      only run the proxy (HOST/PORT, default 127.0.0.1:4001)";
@@ -286,8 +286,14 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
     let status = upstream.status();
     if !status.is_success() {
         let text = upstream.text().await.unwrap_or_default();
-        let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-        return error(code, &format!("nvidia {status}: {text}"));
+        let code = match status.as_u16() {
+            404 | 410 => StatusCode::BAD_REQUEST,
+            other => StatusCode::from_u16(other).unwrap_or(StatusCode::BAD_GATEWAY),
+        };
+        return error(
+            code,
+            &format!("nvidia {status} (model {upstream_model}): {text}"),
+        );
     }
 
     let translator = response::ChatToMessages::new(requested, stream);
