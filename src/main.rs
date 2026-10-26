@@ -75,6 +75,12 @@ fn env_number(name: &str) -> Option<u64> {
     env::var(name).ok().and_then(|v| v.parse().ok())
 }
 
+fn clean_model(raw: &str) -> String {
+    raw.trim()
+        .trim_matches(|c: char| matches!(c, '.' | ',' | ';' | '"' | '\'' | '`'))
+        .to_owned()
+}
+
 fn fail(message: &str) -> ! {
     eprintln!("nimclaude: {message}");
     std::process::exit(1)
@@ -101,12 +107,25 @@ fn set_command(args: &[String]) {
             std::process::exit(2);
         }
     };
+    let value = if key == "model" {
+        clean_model(value)
+    } else {
+        value.trim().to_owned()
+    };
     let mut settings = read_settings();
     settings.insert(key.to_owned(), value.clone());
     if let Err(err) = write_settings(&settings) {
         fail(&format!("cannot write {}: {err}", config_path().display()));
     }
-    println!("saved {key} to {}", config_path().display());
+    println!(
+        "saved {key}{} to {}",
+        if key == "model" {
+            format!(" = {value}")
+        } else {
+            String::new()
+        },
+        config_path().display()
+    );
 }
 
 fn logs_command(arg: Option<&str>) {
@@ -166,6 +185,7 @@ fn load_config() -> Arc<Config> {
         chat_url: format!("{}/v1/chat/completions", base.trim_end_matches('/')),
         model_override: Some(
             setting(&settings, "NIMCLAUDE_MODEL", "model")
+                .map(|m| clean_model(&m))
                 .unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
         ),
         first_byte_timeout: Duration::from_secs(env_number("NIMCLAUDE_TIMEOUT").unwrap_or(120)),
