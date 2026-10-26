@@ -1,0 +1,14 @@
+[Unit]
+Description=nimclaude: NVIDIA NIM proxy for Claude Code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/nimclaude/env
+ExecStart=/usr/bin/nimclaude
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target
