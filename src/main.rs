@@ -4,11 +4,7 @@ mod request;
 mod response;
 
 use std::{
-    collections::BTreeMap,
-    env, fs, io,
-    os::unix::fs::PermissionsExt,
-    path::PathBuf,
-    sync::Arc,
+    collections::BTreeMap, env, fs, io, os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc,
 };
 
 use axum::{
@@ -105,7 +101,10 @@ fn show_command() {
         format!("{}...", k.chars().take(8).collect::<String>())
     });
     let model = settings.get("model").map_or(DEFAULT_MODEL, String::as_str);
-    println!("config: {}\napi:    {api}\nmodel:  {model}", config_path().display());
+    println!(
+        "config: {}\napi:    {api}\nmodel:  {model}",
+        config_path().display()
+    );
 }
 
 fn load_config() -> Arc<Config> {
@@ -113,12 +112,14 @@ fn load_config() -> Arc<Config> {
     let Some(api_key) = setting(&settings, "NVIDIA_API_KEY", "api") else {
         fail("no API key yet. run: nimclaude set api <NVIDIA_API_KEY>");
     };
-    let base = env::var("NIMCLAUDE_BASE").unwrap_or_else(|_| "https://integrate.api.nvidia.com".to_owned());
+    let base = env::var("NIMCLAUDE_BASE")
+        .unwrap_or_else(|_| "https://integrate.api.nvidia.com".to_owned());
     Arc::new(Config {
         api_key,
         chat_url: format!("{}/v1/chat/completions", base.trim_end_matches('/')),
         model_override: Some(
-            setting(&settings, "NIMCLAUDE_MODEL", "model").unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
+            setting(&settings, "NIMCLAUDE_MODEL", "model")
+                .unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
         ),
         proxy_key: env::var("NIMCLAUDE_KEY").ok().filter(|k| !k.is_empty()),
         http: reqwest::Client::new(),
@@ -145,7 +146,9 @@ async fn serve_command() {
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    let _ = axum::serve(listener, router(config)).with_graceful_shutdown(shutdown).await;
+    let _ = axum::serve(listener, router(config))
+        .with_graceful_shutdown(shutdown)
+        .await;
 }
 
 async fn run_command(claude_args: &[String]) {
@@ -154,7 +157,9 @@ async fn run_command(claude_args: &[String]) {
         Ok(l) => l,
         Err(err) => fail(&format!("cannot bind a local port: {err}")),
     };
-    let addr = listener.local_addr().expect("bound listener has an address");
+    let addr = listener
+        .local_addr()
+        .expect("bound listener has an address");
     tokio::spawn(async move {
         let _ = axum::serve(listener, router(config)).await;
     });
@@ -175,7 +180,9 @@ async fn run_command(claude_args: &[String]) {
 async fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("-V" | "--version") => println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+        Some("-V" | "--version") => {
+            println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+        }
         Some("-h" | "--help" | "help") => println!("{USAGE}"),
         Some("set") => set_command(&args[1..]),
         Some("show") => show_command(),
@@ -186,7 +193,12 @@ async fn main() {
 
 fn error(status: StatusCode, message: &str) -> Response {
     let body = json!({"type": "error", "error": {"type": "api_error", "message": message}});
-    (status, [(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
 }
 
 fn authorized(config: &Config, headers: &HeaderMap) -> bool {
@@ -201,7 +213,11 @@ fn authorized(config: &Config, headers: &HeaderMap) -> bool {
     given == Some(key.as_str())
 }
 
-async fn count_tokens(State(config): State<Arc<Config>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn count_tokens(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if !authorized(&config, &headers) {
         return error(StatusCode::UNAUTHORIZED, "unauthorized");
     }
@@ -220,7 +236,10 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
         return error(StatusCode::BAD_REQUEST, "missing model");
     };
     let upstream_model = config.model_override.clone().unwrap_or_else(|| {
-        requested.strip_prefix("nvidia/").unwrap_or(requested).to_owned()
+        requested
+            .strip_prefix("nvidia/")
+            .unwrap_or(requested)
+            .to_owned()
     });
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let chat = request::to_chat_request(&body, &upstream_model);
@@ -262,8 +281,13 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
             }
         },
     );
-    let content_type = if stream { "text/event-stream" } else { "application/json" };
+    let content_type = if stream {
+        "text/event-stream"
+    } else {
+        "application/json"
+    };
     let mut resp = Response::new(Body::from_stream(chunks));
-    resp.headers_mut().insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+    resp.headers_mut()
+        .insert(header::CONTENT_TYPE, content_type.parse().unwrap());
     resp
 }

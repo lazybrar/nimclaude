@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-use serde_json::{json, Value};
-
+use serde_json::{Value, json};
 
 #[derive(PartialEq)]
 enum Open {
@@ -97,7 +96,9 @@ impl ChatToMessages {
         }
         if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
             self.input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(self.input_tokens);
-            self.output_tokens = usage["completion_tokens"].as_u64().unwrap_or(self.output_tokens);
+            self.output_tokens = usage["completion_tokens"]
+                .as_u64()
+                .unwrap_or(self.output_tokens);
         }
         self.start(out);
         let Some(choice) = chunk["choices"].get(0) else {
@@ -124,7 +125,10 @@ impl ChatToMessages {
                 );
             }
             if let Some(args) = function["arguments"].as_str().filter(|a| !a.is_empty()) {
-                self.delta(out, json!({"type": "input_json_delta", "partial_json": args}));
+                self.delta(
+                    out,
+                    json!({"type": "input_json_delta", "partial_json": args}),
+                );
             }
         }
         if let Some(reason) = choice["finish_reason"].as_str() {

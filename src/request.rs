@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub fn to_chat_request(body: &Value, upstream_model: &str) -> Value {
     let mut out = Map::new();
@@ -81,7 +81,10 @@ fn tool_choice(choice: Option<&Value>) -> Option<Value> {
 }
 
 fn push_message(out: &mut Vec<Value>, message: &Value) {
-    let role = message.get("role").and_then(Value::as_str).unwrap_or("user");
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user");
     let blocks = match message.get("content") {
         Some(Value::String(text)) => {
             out.push(json!({"role": role, "content": text}));
@@ -188,7 +191,10 @@ mod tests {
         let m = out["messages"].as_array().unwrap();
         assert_eq!(m[0], json!({"role": "system", "content": "sys"}));
         assert_eq!(m[2]["tool_calls"][0]["function"]["arguments"], "{\"a\":1}");
-        assert_eq!(m[3], json!({"role": "tool", "tool_call_id": "t1", "content": "out"}));
+        assert_eq!(
+            m[3],
+            json!({"role": "tool", "tool_call_id": "t1", "content": "out"})
+        );
         assert_eq!(m[4], json!({"role": "user", "content": "next"}));
         assert_eq!(out["tool_choice"], "required");
         assert_eq!(out["tools"][0]["function"]["name"], "ls");
