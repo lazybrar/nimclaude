@@ -10,6 +10,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{
@@ -146,7 +147,11 @@ fn load_config() -> Arc<Config> {
                 .unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
         ),
         proxy_key: env::var("NIMCLAUDE_KEY").ok().filter(|k| !k.is_empty()),
-        http: reqwest::Client::new(),
+        http: reqwest::Client::builder()
+            .http1_only()
+            .connect_timeout(Duration::from_secs(20))
+            .build()
+            .expect("http client"),
     })
 }
 
@@ -218,6 +223,17 @@ async fn main() {
     }
 }
 
+fn chain(err: &dyn std::error::Error) -> String {
+    let mut out = err.to_string();
+    let mut source = err.source();
+    while let Some(inner) = source {
+        out.push_str(": ");
+        out.push_str(&inner.to_string());
+        source = inner.source();
+    }
+    out
+}
+
 fn error(status: StatusCode, message: &str) -> Response {
     let body = json!({"type": "error", "error": {"type": "api_error", "message": message}});
     (
@@ -280,7 +296,12 @@ async fn messages(State(config): State<Arc<Config>>, headers: HeaderMap, body: B
         .await
     {
         Ok(r) => r,
-        Err(err) => return error(StatusCode::BAD_GATEWAY, &format!("upstream: {err}")),
+        Err(err) => {
+            return error(
+                StatusCode::BAD_GATEWAY,
+                &format!("upstream: {}", chain(&err)),
+            );
+        }
     };
 
     let status = upstream.status();
