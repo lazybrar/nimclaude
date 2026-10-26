@@ -19,11 +19,20 @@ normal Claude login is untouched when you run plain `claude`.
 | `nimclaude set api <key>` | save the NVIDIA API key (`~/.config/nimclaude/config`, mode 600) |
 | `nimclaude set model <id>` | choose the model, default `moonshotai/kimi-k2.6` |
 | `nimclaude show` | print the saved settings (key shortened) |
+| `nimclaude logs [path]` | last 60 log lines, or just the log path (`~/.local/state/nimclaude/nimclaude.log`, rotated at 5 MB) |
 | `nimclaude serve` | only run the proxy on `127.0.0.1:4001` (`HOST`/`PORT`), e.g. `systemctl --user enable --now nimclaude` |
 
 The chosen model is used for every request, including Claude Code's small
 background-model calls. `NVIDIA_API_KEY`, `NIMCLAUDE_MODEL`, `NIMCLAUDE_KEY`
 (require a token from the client) and `NIMCLAUDE_BASE` override the config.
+
+## Logs
+
+Every request is logged (client model, upstream model, message and tool counts,
+upstream status and latency, bytes streamed, errors with the full cause). API
+keys are never logged. For troubleshooting, `NIMCLAUDE_LOG=debug nimclaude`
+also logs the translated request and the raw upstream chunks (prompts included,
+so keep that log private).
 
 ## Install
 
